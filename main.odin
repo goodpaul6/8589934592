@@ -27,8 +27,8 @@ PosUp :: struct {
 }
 
 VIEW_POS := [View]PosUp {
-	.TOP = PosUp{pos = {0, CAM_DIST, 0}, up = {0, 0, 1}},
-	.BOTTOM = PosUp{pos = {0, -CAM_DIST, 0}, up = {0, 0, 1}},
+	.TOP = PosUp{pos = {0, CAM_DIST, 0}, up = {0, 0, -1}},
+	.BOTTOM = PosUp{pos = {0, -CAM_DIST, 0}, up = {0, 0, -1}},
 	.LEFT = PosUp{pos = {CAM_DIST, 0, 0}, up = {0, 1, 0}},
 	.RIGHT = PosUp{pos = {-CAM_DIST, 0, 0}, up = {0, 1, 0}},
 	.FRONT = PosUp{pos = {0, 0, CAM_DIST}, up = {0, 1, 0}},
@@ -319,7 +319,29 @@ main :: proc() {
 
 						rl.BeginTextureMode(r_texture)
 
-						rl.ClearBackground(rl.ColorFromHSV(f32(value) / 4096, 0.5, 1))
+						value_to_color := [?]struct {
+							value: int,
+							color: u32,
+						} {
+							{value = 2, color = 0xeee4daff},
+							{value = 4, color = 0xede0c8ff},
+							{value = 8, color = 0xf2b179ff},
+							{value = 16, color = 0xf59563ff},
+							{value = 32, color = 0xf67c5fff},
+							{value = 64, color = 0xf65e3bff},
+							{value = 128, color = 0xedcf72ff},
+							{value = 256, color = 0xedcc61ff},
+							{value = 512, color = 0xedc850ff},
+							{value = 1024, color = 0xedc53fff},
+							{value = 2048, color = 0xedc22eff},
+							{value = 4096, color = 0x3c3a32ff},
+						}
+
+						for vc in value_to_color {
+							if vc.value == value {
+								rl.ClearBackground(rl.GetColor(vc.color))
+							}
+						}
 
 						str := strings.clone_to_cstring(
 							fmt.tprintf("%d", value),
