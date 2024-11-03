@@ -21,14 +21,18 @@ View :: enum {
 
 CAM_DIST :: 10
 
-VIEW_POS := [View]rl.Vector3 {
-	// HACK(Apaar): The 0.01 is because it disappears if I don't, maybe some kind of rounding error or smth idk
-	.TOP    = {0, CAM_DIST, 0.01},
-	.BOTTOM = {0, -CAM_DIST, -0.01},
-	.LEFT   = {CAM_DIST, 0, 0.01},
-	.RIGHT  = {-CAM_DIST, 0, 0.01},
-	.FRONT  = {0.01, 0, CAM_DIST},
-	.BACK   = {0.01, 0, -CAM_DIST},
+PosUp :: struct {
+	pos: rl.Vector3,
+	up:  rl.Vector3,
+}
+
+VIEW_POS := [View]PosUp {
+	.TOP = PosUp{pos = {0, CAM_DIST, 0}, up = {0, 0, 1}},
+	.BOTTOM = PosUp{pos = {0, -CAM_DIST, 0}, up = {0, 0, 1}},
+	.LEFT = PosUp{pos = {CAM_DIST, 0, 0}, up = {0, 1, 0}},
+	.RIGHT = PosUp{pos = {-CAM_DIST, 0, 0}, up = {0, 1, 0}},
+	.FRONT = PosUp{pos = {0, 0, CAM_DIST}, up = {0, 1, 0}},
+	.BACK = PosUp{pos = {0, 0, -CAM_DIST}, up = {0, 1, 0}},
 }
 
 GRID_LEN :: GRID_SIZE * GRID_SIZE * GRID_SIZE
@@ -150,6 +154,10 @@ main :: proc() {
 	defer rl.CloseWindow()
 
 	view := View.TOP
+	dest_view := View.TOP
+	view_trans_time_left := f32(0)
+
+	VIEW_TRANS_TIME :: f32(0.5)
 
 	camera := rl.Camera3D {
 		fovy       = 45,
@@ -177,28 +185,41 @@ main :: proc() {
 	defer rl.UnloadMesh(cube_mesh)
 
 	for !rl.WindowShouldClose() {
-		if rl.IsKeyPressed(.ONE) {
-			view = .TOP
-		}
+		if view == dest_view {
+			// At rest rn, so let the user change view
 
-		if rl.IsKeyPressed(.TWO) {
-			view = .BOTTOM
-		}
+			if rl.IsKeyPressed(.ONE) {
+				dest_view = .TOP
+			}
 
-		if rl.IsKeyPressed(.THREE) {
-			view = .LEFT
-		}
+			if rl.IsKeyPressed(.TWO) {
+				dest_view = .BOTTOM
+			}
 
-		if rl.IsKeyPressed(.FOUR) {
-			view = .RIGHT
-		}
+			if rl.IsKeyPressed(.THREE) {
+				dest_view = .LEFT
+			}
 
-		if rl.IsKeyPressed(.FIVE) {
-			view = .BACK
-		}
+			if rl.IsKeyPressed(.FOUR) {
+				dest_view = .RIGHT
+			}
 
-		if rl.IsKeyPressed(.SIX) {
-			view = .FRONT
+			if rl.IsKeyPressed(.FIVE) {
+				dest_view = .BACK
+			}
+
+			if rl.IsKeyPressed(.SIX) {
+				dest_view = .FRONT
+			}
+
+			if dest_view != view {
+				view_trans_time_left += VIEW_TRANS_TIME
+			}
+		} else if view_trans_time_left > 0 {
+			view_trans_time_left -= rl.GetFrameTime()
+			if view_trans_time_left <= 0 {
+				view = dest_view
+			}
 		}
 
 		d2: [2]int
@@ -237,7 +258,14 @@ main :: proc() {
 			}
 		}
 
-		camera.position = VIEW_POS[view]
+		if view == dest_view {
+			camera.position = VIEW_POS[view].pos
+			camera.up = VIEW_POS[view].up
+		} else {
+			t := view_trans_time_left / VIEW_TRANS_TIME
+			camera.position = VIEW_POS[view].pos * t + VIEW_POS[dest_view].pos * (1.0 - t)
+			camera.up = VIEW_POS[view].up * t + VIEW_POS[dest_view].up * (1.0 - t)
+		}
 
 		rl.BeginDrawing()
 
