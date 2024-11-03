@@ -51,6 +51,100 @@ rand_zero_index :: proc(grid: ^Grid) -> int {
 	return rand.choice(sa.slice(&possible_indices))
 }
 
+delta2_to_delta3 :: proc(d2: [2]int, view: View) -> [3]int {
+	d3: [3]int
+
+	switch view {
+	case .TOP:
+		d3.x = d2.x
+		d3.z = d2.y
+	case .BOTTOM:
+		d3.x = -d2.x
+		d3.z = d2.y
+	case .LEFT:
+		d3.z = -d2.x
+		d3.y = -d2.y
+	case .RIGHT:
+		d3.z = d2.x
+		d3.y = -d2.y
+	case .FRONT:
+		d3.x = d2.x
+		d3.y = -d2.y
+	case .BACK:
+		d3.x = -d2.x
+		d3.y = -d2.y
+	}
+
+	return d3
+}
+
+// Returns true if we did do a shift
+shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
+	// Look at every value and then see if moving it by delta is possible.
+	// It's possible if the index is empty or if the index contains the same
+	// value.
+	//
+	// If so, we shift the value: set the value at dest to 2 * value and set current
+	// pos to 0.
+
+	shift_count := 0
+
+	for {
+		did_shift := false
+
+		for x := 0; x < GRID_SIZE; x += 1 {
+			for y := 0; y < GRID_SIZE; y += 1 {
+				for z := 0; z < GRID_SIZE; z += 1 {
+					src_idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
+					src_value := grid[src_idx]
+
+					if src_value == 0 {
+						continue
+					}
+
+					dest_pos := [3]int{x + delta.x, y + delta.y, z + delta.z}
+
+					if dest_pos.x < 0 ||
+					   dest_pos.x >= GRID_SIZE ||
+					   dest_pos.y < 0 ||
+					   dest_pos.y >= GRID_SIZE ||
+					   dest_pos.z < 0 ||
+					   dest_pos.z >= GRID_SIZE {
+						// Out of range, just continue
+						continue
+					}
+
+					dest_idx :=
+						dest_pos.x * (GRID_SIZE * GRID_SIZE) + dest_pos.y * GRID_SIZE + dest_pos.z
+
+					dest_value := grid[dest_idx]
+
+					if dest_value == 0 {
+						grid[src_idx] = 0
+						grid[dest_idx] = src_value
+
+						did_shift = true
+						shift_count += 1
+					} else if dest_value == src_value {
+						grid[src_idx] = 0
+						grid[dest_idx] = src_value * 2
+
+						did_shift = true
+						shift_count += 1
+					}
+				}
+			}
+		}
+
+		// Stop when we no longer shifted anything
+		if !did_shift {
+			break
+		}
+	}
+
+	return shift_count > 0
+}
+
 main :: proc() {
 	rl.InitWindow(600, 600, "8589934592")
 	defer rl.CloseWindow()
@@ -107,6 +201,42 @@ main :: proc() {
 			view = .FRONT
 		}
 
+		d2: [2]int
+
+		if rl.IsKeyPressed(.LEFT) {
+			d2.x = -1
+		}
+
+		if rl.IsKeyPressed(.RIGHT) {
+			d2.x = 1
+		}
+
+		if rl.IsKeyPressed(.UP) {
+			d2.y = -1
+		}
+
+		if rl.IsKeyPressed(.DOWN) {
+			d2.y = 1
+		}
+
+		if d2.x != 0 || d2.y != 0 {
+			d3 := delta2_to_delta3(d2, view)
+
+			did_shift := shift_values(&grid, d3)
+
+			if did_shift {
+				empty_idx := rand_zero_index(&grid)
+
+				if empty_idx < 0 {
+					// TODO(Apaar): Check if game is possible or end game if not
+				} else {
+					// TODO(Apaar): Also spawn 4s
+					grid[empty_idx] = 2
+					fmt.println("Set", empty_idx, "to 2")
+				}
+			}
+		}
+
 		camera.position = VIEW_POS[view]
 
 		rl.BeginDrawing()
@@ -161,7 +291,7 @@ main :: proc() {
 
 						rl.BeginTextureMode(r_texture)
 
-						rl.ClearBackground(rl.WHITE)
+						rl.ClearBackground(rl.ColorFromHSV(f32(value) / 4096, 0.5, 1))
 
 						str := strings.clone_to_cstring(
 							fmt.tprintf("%d", value),
