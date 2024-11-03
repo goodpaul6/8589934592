@@ -1,9 +1,11 @@
 package game
 
 import sa "core:container/small_array"
+import "core:encoding/cbor"
 import "core:fmt"
 import "core:math"
 import "core:math/rand"
+import "core:os"
 import "core:reflect"
 import "core:strings"
 import rl "vendor:raylib"
@@ -93,6 +95,9 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 
 	shift_count := 0
 
+	// If this is 1 at an index then it should not be merged again in this shift
+	already_merged: Grid
+
 	for {
 		did_shift := false
 
@@ -102,7 +107,7 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 					src_idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
 					src_value := grid[src_idx]
 
-					if src_value == 0 {
+					if src_value == 0 || already_merged[src_idx] == 1 {
 						continue
 					}
 
@@ -135,6 +140,8 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 
 						did_shift = true
 						shift_count += 1
+
+						already_merged[dest_idx] = 1
 					}
 				}
 			}
@@ -167,13 +174,6 @@ main :: proc() {
 		up         = {0, 1, 0},
 	}
 
-	grid: Grid
-
-	{
-		idx := rand_zero_index(&grid)
-		grid[idx] = 2
-	}
-
 	Num_Texture :: struct {
 		value:   int,
 		texture: rl.RenderTexture,
@@ -183,6 +183,23 @@ main :: proc() {
 
 	cube_mesh := rl.GenMeshCube(0.8, 0.8, 0.8)
 	defer rl.UnloadMesh(cube_mesh)
+
+	SAVE_FILENAME :: "cubed.save"
+
+	grid: Grid
+
+	{
+		data, ok := os.read_entire_file(SAVE_FILENAME, context.temp_allocator)
+		if ok {
+			err := cbor.unmarshal(string(data), &grid)
+			if err != nil {
+				fmt.eprintln("Failed to load save. Delete it.")
+			}
+		} else {
+			idx := rand_zero_index(&grid)
+			grid[idx] = 2
+		}
+	}
 
 	for !rl.WindowShouldClose() {
 		if view == dest_view {
@@ -254,6 +271,13 @@ main :: proc() {
 					// TODO(Apaar): Also spawn 4s
 					grid[empty_idx] = 2
 					fmt.println("Set", empty_idx, "to 2")
+				}
+
+
+				data, err := cbor.marshal(grid)
+
+				if err != nil || !os.write_entire_file(SAVE_FILENAME, data) {
+					fmt.eprintf("Failed to write to file cubed.save")
 				}
 			}
 		}
