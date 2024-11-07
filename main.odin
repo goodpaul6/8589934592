@@ -146,7 +146,7 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 				src_idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
 				value := &grid[src_idx]
 
-				if value.src_value == 0 || value.dest_value == 0 || already_merged[src_idx] {
+				if value.src_value == 0 || value.dest_value == 0 {
 					continue
 				}
 
@@ -181,7 +181,11 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 						value.dest_pos = dest_pos
 
 						shift_count += 1
-					} else if dest_value.src_value == value.src_value {
+					} else if dest_value.src_value == value.src_value &&
+					   !already_merged[dest_idx] {
+						// Only let this merge again if we haven't already merged the value here hence
+						// the already_merged
+
 						value.dest_pos = dest_pos
 						value.dest_value = value.src_value * 2
 
@@ -364,6 +368,24 @@ main :: proc() {
 		rl.ClearBackground(rl.RAYWHITE)
 
 		rl.BeginMode3D(camera)
+
+		east_out_bounce :: proc(x: f32) -> f32 {
+			n1 := f32(7.5625)
+			d1 := f32(2.75)
+
+			if x < 1 / d1 {
+				return n1 * x * x
+			} else if x < 2 / d1 {
+				y := x - 1.5 / d1
+				return n1 * y * y + 0.75
+			} else if x < 2.5 / d1 {
+				y := x - 2.25 / d1
+				return n1 * y * y + 0.9375
+			} else {
+				y := x - 2.625 / d1
+				return n1 * y * y + 0.984375
+			}
+		}
 
 		// easeOutCubic
 		shift_time_t := 1 - math.pow(1 - (1 - shift_time_left / SHIFT_TIME), 3)
