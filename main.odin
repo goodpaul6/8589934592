@@ -38,14 +38,56 @@ VIEW_POS := [View]PosUp {
 }
 
 GRID_LEN :: GRID_SIZE * GRID_SIZE * GRID_SIZE
-Grid :: [GRID_LEN]int
+
+Grid_Value :: struct {
+	src_value:  int,
+	// These are only changed when the value is shifted
+	dest_pos:   [3]int,
+	dest_value: int,
+}
+
+Grid :: [GRID_LEN]Grid_Value
+
+// Sets src_value to dest_value and moves the value to it's dest_pos in the grid
+grid_settle :: proc(grid: ^Grid) {
+	for x := 0; x < GRID_SIZE; x += 1 {
+		for y := 0; y < GRID_SIZE; y += 1 {
+			for z := 0; z < GRID_SIZE; z += 1 {
+				idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
+				value := &grid[idx]
+
+				// If the grid value hasn't moved, no need to do anything
+				if grid[idx].dest_pos == {x, y, z} {
+					continue
+				}
+
+				dest_idx :=
+					value.dest_pos.x * GRID_SIZE * GRID_SIZE +
+					value.dest_pos.y * GRID_SIZE +
+					value.dest_pos.z
+
+				// Update the dest value
+				grid[dest_idx] = {
+					src_value  = value.dest_value,
+					dest_pos   = value.dest_pos,
+					dest_value = value.dest_value,
+				}
+
+				// Clear out where the grid value moved from
+				value.src_value = 0
+				value.dest_pos = {x, y, z}
+				value.dest_value = 0
+			}
+		}
+	}
+}
 
 // If this returns -1, there are no empty spots
 rand_zero_index :: proc(grid: ^Grid) -> int {
 	possible_indices: sa.Small_Array(GRID_LEN, int)
 
 	for value, i in grid {
-		if value == 0 {
+		if value.src_value == 0 {
 			sa.push(&possible_indices, i)
 		}
 	}
@@ -95,23 +137,29 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 
 	shift_count := 0
 
-	// If this is 1 at an index then it should not be merged again in this shift
-	already_merged: Grid
+	// If this is true at an index then it should not be merged again in this shift
+	already_merged: [GRID_LEN]bool
 
-	for {
-		did_shift := false
+	for x := 0; x < GRID_SIZE; x += 1 {
+		for y := 0; y < GRID_SIZE; y += 1 {
+			for z := 0; z < GRID_SIZE; z += 1 {
+				src_idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
+				value := &grid[src_idx]
 
-		for x := 0; x < GRID_SIZE; x += 1 {
-			for y := 0; y < GRID_SIZE; y += 1 {
-				for z := 0; z < GRID_SIZE; z += 1 {
-					src_idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
-					src_value := grid[src_idx]
+				if value.src_value == 0 || already_merged[src_idx] {
+					continue
+				}
 
-					if src_value == 0 || already_merged[src_idx] == 1 {
-						continue
+				// Keep moving while we can
+				for {
+					// We actually want to use the position its shifted to (if at all) in order to determine
+					// where it's at
+					cur_pos := value.dest_pos
+					dest_pos := [3]int {
+						cur_pos.x + delta.x,
+						cur_pos.y + delta.y,
+						cur_pos.z + delta.z,
 					}
-
-					dest_pos := [3]int{x + delta.x, y + delta.y, z + delta.z}
 
 					if dest_pos.x < 0 ||
 					   dest_pos.x >= GRID_SIZE ||
@@ -119,39 +167,41 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 					   dest_pos.y >= GRID_SIZE ||
 					   dest_pos.z < 0 ||
 					   dest_pos.z >= GRID_SIZE {
-						// Out of range, just continue
-						continue
+						// Out of range, stop moving
+						break
 					}
 
 					dest_idx :=
 						dest_pos.x * (GRID_SIZE * GRID_SIZE) + dest_pos.y * GRID_SIZE + dest_pos.z
 
-					dest_value := grid[dest_idx]
+					dest_value := &grid[dest_idx]
 
-					if dest_value == 0 {
-						grid[src_idx] = 0
-						grid[dest_idx] = src_value
+					if dest_value.src_value == 0 {
+						// While there's empties, keep moving
+						value.dest_pos = dest_pos
 
-						did_shift = true
 						shift_count += 1
-					} else if dest_value == src_value {
-						grid[src_idx] = 0
-						grid[dest_idx] = src_value * 2
+					} else if dest_value.src_value == value.src_value {
+						value.dest_pos = dest_pos
+						value.dest_value = value.src_value * 2
 
-						did_shift = true
+						// The spot we moved to is about to go to 0
+						dest_value.dest_value = 0
+
 						shift_count += 1
 
-						already_merged[dest_idx] = 1
+						already_merged[dest_idx] = true
+
+						// When we merge, stop
+						break
+					} else {
+						break
 					}
 				}
 			}
 		}
-
-		// Stop when we no longer shifted anything
-		if !did_shift {
-			break
-		}
 	}
+
 
 	return shift_count > 0
 }
@@ -196,10 +246,16 @@ main :: proc() {
 				fmt.eprintln("Failed to load save. Delete it.")
 			}
 		} else {
+			grid_settle(&grid)
+
 			idx := rand_zero_index(&grid)
-			grid[idx] = 2
+			grid[idx].src_value = 2
+			grid[idx].dest_value = 2
 		}
 	}
+
+	SHIFT_TIME :: f32(0.2)
+	shift_time_left := f32(0)
 
 	for !rl.WindowShouldClose() {
 		if view == dest_view {
@@ -241,43 +297,57 @@ main :: proc() {
 
 		d2: [2]int
 
-		if rl.IsKeyPressed(.LEFT) {
-			d2.x = -1
-		}
+		if shift_time_left <= 0 {
+			if rl.IsKeyPressed(.LEFT) {
+				d2.x = -1
+			}
 
-		if rl.IsKeyPressed(.RIGHT) {
-			d2.x = 1
-		}
+			if rl.IsKeyPressed(.RIGHT) {
+				d2.x = 1
+			}
 
-		if rl.IsKeyPressed(.UP) {
-			d2.y = -1
-		}
+			if rl.IsKeyPressed(.UP) {
+				d2.y = -1
+			}
 
-		if rl.IsKeyPressed(.DOWN) {
-			d2.y = 1
-		}
+			if rl.IsKeyPressed(.DOWN) {
+				d2.y = 1
+			}
 
-		if d2.x != 0 || d2.y != 0 {
-			d3 := delta2_to_delta3(d2, view)
+			if d2.x != 0 || d2.y != 0 {
+				d3 := delta2_to_delta3(d2, view)
 
-			did_shift := shift_values(&grid, d3)
+				did_shift := shift_values(&grid, d3)
 
-			if did_shift {
+				if did_shift {
+					shift_time_left += SHIFT_TIME
+
+					data, err := cbor.marshal(grid)
+
+					if err != nil || !os.write_entire_file(SAVE_FILENAME, data) {
+						fmt.eprintf("Failed to write to file cubed.save")
+					}
+				}
+			}
+		} else {
+			shift_time_left -= rl.GetFrameTime()
+
+			if shift_time_left <= 0 {
+				shift_time_left = 0
+				grid_settle(&grid)
+
+				// Spawn block in random pos; must do it after settle
+				// because otherwise we might overwrite values being shifted
 				empty_idx := rand_zero_index(&grid)
 
 				if empty_idx < 0 {
 					// TODO(Apaar): Check if game is possible or end game if not
 				} else {
 					// TODO(Apaar): Also spawn 4s
-					grid[empty_idx] = 2
+					grid[empty_idx].src_value = 2
+					grid[empty_idx].dest_value = 2
+
 					fmt.println("Set", empty_idx, "to 2")
-				}
-
-
-				data, err := cbor.marshal(grid)
-
-				if err != nil || !os.write_entire_file(SAVE_FILENAME, data) {
-					fmt.eprintf("Failed to write to file cubed.save")
 				}
 			}
 		}
@@ -296,6 +366,8 @@ main :: proc() {
 		rl.ClearBackground(rl.RAYWHITE)
 
 		rl.BeginMode3D(camera)
+
+		shift_time_t := 1 - shift_time_left / SHIFT_TIME
 
 		for x := 0; x < GRID_SIZE; x += 1 {
 			for y := 0; y < GRID_SIZE; y += 1 {
@@ -321,14 +393,21 @@ main :: proc() {
 
 					value := grid[x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z]
 
-					if value == 0 {
+					num := int(
+						math.ceil(
+							f32(value.src_value) * (1 - shift_time_t) +
+							f32(value.dest_value) * shift_time_t,
+						),
+					)
+
+					if num == 0 {
 						continue
 					}
 
 					texture: ^rl.RenderTexture
 
 					for &num_texture in num_textures {
-						if num_texture.value == value {
+						if num_texture.value == num {
 							texture = &num_texture.texture
 						}
 					}
@@ -361,14 +440,36 @@ main :: proc() {
 							{value = 4096, color = 0x3c3a32ff},
 						}
 
+						// Blend between number color values when shifting
+						src_color: rl.Color
+						dest_color: rl.Color
+
 						for vc in value_to_color {
-							if vc.value == value {
-								rl.ClearBackground(rl.GetColor(vc.color))
+							if vc.value == num {
+								src_color = rl.GetColor(vc.color)
+								dest_color = rl.GetColor(vc.color)
+								break
+							} else if vc.value < num {
+								src_color = rl.GetColor(vc.color)
+							} else if vc.value > num {
+								dest_color = rl.GetColor(vc.color)
+								break
 							}
 						}
 
+						blended_color := rl.ColorFromNormalized(
+							rl.ColorNormalize(src_color) * (1 - shift_time_t) +
+							rl.ColorNormalize(dest_color) * shift_time_t,
+						)
+
+						blended_color.a = 0xff
+
+						rl.ClearBackground(blended_color)
+
+						fmt.println(num, src_color, dest_color, value)
+
 						str := strings.clone_to_cstring(
-							fmt.tprintf("%d", value),
+							fmt.tprintf("%d", num),
 							context.temp_allocator,
 						)
 
@@ -384,15 +485,35 @@ main :: proc() {
 
 						rl.EndTextureMode()
 
-						append(&num_textures, Num_Texture{value = value, texture = r_texture})
+						append(&num_textures, Num_Texture{value = num, texture = r_texture})
 
 						texture = &r_texture
+					}
+
+					dest_pos := rl.Vector3 {
+						f32(value.dest_pos.x - GRID_SIZE / 2) + 0.5,
+						f32(value.dest_pos.y - GRID_SIZE / 2) + 0.5,
+						f32(value.dest_pos.z - GRID_SIZE / 2) + 0.5,
 					}
 
 					mat := rl.LoadMaterialDefault()
 					rl.SetMaterialTexture(&mat, .ALBEDO, texture.texture)
 
-					rl.DrawMesh(cube_mesh, mat, rl.MatrixTranslate(pos.x, pos.y, pos.z))
+					blended_pos := pos * (1 - shift_time_t) + dest_pos * shift_time_t
+
+					scale := f32(1.0)
+
+					// It's gonna shrink away
+					if value.dest_value == 0 {
+						scale = 1 - shift_time_t
+					}
+
+					rl.DrawMesh(
+						cube_mesh,
+						mat,
+						rl.MatrixTranslate(blended_pos.x, blended_pos.y, blended_pos.z) *
+						rl.MatrixScale(scale, scale, scale),
+					)
 				}
 			}
 		}
