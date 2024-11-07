@@ -146,7 +146,7 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 				src_idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
 				value := &grid[src_idx]
 
-				if value.src_value == 0 || already_merged[src_idx] {
+				if value.src_value == 0 || value.dest_value == 0 || already_merged[src_idx] {
 					continue
 				}
 
@@ -321,12 +321,6 @@ main :: proc() {
 
 				if did_shift {
 					shift_time_left += SHIFT_TIME
-
-					data, err := cbor.marshal(grid)
-
-					if err != nil || !os.write_entire_file(SAVE_FILENAME, data) {
-						fmt.eprintf("Failed to write to file cubed.save")
-					}
 				}
 			}
 		} else {
@@ -346,8 +340,12 @@ main :: proc() {
 					// TODO(Apaar): Also spawn 4s
 					grid[empty_idx].src_value = 2
 					grid[empty_idx].dest_value = 2
+				}
 
-					fmt.println("Set", empty_idx, "to 2")
+				data, err := cbor.marshal(grid)
+
+				if err != nil || !os.write_entire_file(SAVE_FILENAME, data) {
+					fmt.eprintf("Failed to write to file cubed.save")
 				}
 			}
 		}
@@ -367,7 +365,8 @@ main :: proc() {
 
 		rl.BeginMode3D(camera)
 
-		shift_time_t := 1 - shift_time_left / SHIFT_TIME
+		// easeOutCubic
+		shift_time_t := 1 - math.pow(1 - (1 - shift_time_left / SHIFT_TIME), 3)
 
 		for x := 0; x < GRID_SIZE; x += 1 {
 			for y := 0; y < GRID_SIZE; y += 1 {
@@ -393,12 +392,7 @@ main :: proc() {
 
 					value := grid[x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z]
 
-					num := int(
-						math.ceil(
-							f32(value.src_value) * (1 - shift_time_t) +
-							f32(value.dest_value) * shift_time_t,
-						),
-					)
+					num := shift_time_t > 0.5 ? value.dest_value : value.src_value
 
 					if num == 0 {
 						continue
@@ -444,14 +438,21 @@ main :: proc() {
 						src_color: rl.Color
 						dest_color: rl.Color
 
+						blend_num := int(
+							math.ceil(
+								f32(value.src_value) * (1 - shift_time_t) +
+								f32(value.dest_value) * shift_time_t,
+							),
+						)
+
 						for vc in value_to_color {
-							if vc.value == num {
+							if vc.value == blend_num {
 								src_color = rl.GetColor(vc.color)
 								dest_color = rl.GetColor(vc.color)
 								break
-							} else if vc.value < num {
+							} else if vc.value < blend_num {
 								src_color = rl.GetColor(vc.color)
-							} else if vc.value > num {
+							} else if vc.value > blend_num {
 								dest_color = rl.GetColor(vc.color)
 								break
 							}
