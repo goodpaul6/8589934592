@@ -137,12 +137,39 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 
 	shift_count := 0
 
-	// If this is true at an index then it should not be merged again in this shift
-	already_merged: [GRID_LEN]bool
+	start_x := 0
+	end_x := GRID_SIZE
+	step_x := 1
 
-	for x := 0; x < GRID_SIZE; x += 1 {
-		for y := 0; y < GRID_SIZE; y += 1 {
-			for z := 0; z < GRID_SIZE; z += 1 {
+	if delta.x < 0 {
+		start_x = GRID_SIZE - 1
+		end_x = -1
+		step_x = -1
+	}
+
+	start_y := 0
+	end_y := GRID_SIZE
+	step_y := 1
+
+	if delta.y < 0 {
+		start_y = GRID_SIZE - 1
+		end_y = -1
+		step_y = -1
+	}
+
+	start_z := 0
+	end_z := GRID_SIZE
+	step_z := 1
+
+	if delta.z < 0 {
+		start_z = GRID_SIZE - 1
+		end_z = -1
+		step_z = -1
+	}
+
+	for x := start_x; x != end_x; x += step_x {
+		for y := start_y; y != end_y; y += step_y {
+			for z := start_z; z != end_z; z += step_z {
 				src_idx := x * GRID_SIZE * GRID_SIZE + y * GRID_SIZE + z
 				value := &grid[src_idx]
 
@@ -176,28 +203,20 @@ shift_values :: proc(grid: ^Grid, delta: [3]int) -> bool {
 
 					dest_value := &grid[dest_idx]
 
-					if dest_value.src_value == 0 {
+					if dest_value.dest_value == 0 {
 						// While there's empties, keep moving
 						value.dest_pos = dest_pos
 
 						shift_count += 1
-					} else if dest_value.src_value == value.src_value &&
-					   !already_merged[dest_idx] {
-						// Only let this merge again if we haven't already merged the value here hence
-						// the already_merged
+					} else if value.src_value == value.dest_value &&
+					   dest_value.src_value == value.src_value {
+						// This should only get hit if this block hasn't
+						// already been merged (i.e. src value = dest value)
 
 						value.dest_pos = dest_pos
 						value.dest_value = value.src_value * 2
 
-						// The spot we moved to is about to go to 0
-						dest_value.dest_value = 0
-
 						shift_count += 1
-
-						already_merged[dest_idx] = true
-
-						// When we merge, stop
-						break
 					} else {
 						break
 					}
